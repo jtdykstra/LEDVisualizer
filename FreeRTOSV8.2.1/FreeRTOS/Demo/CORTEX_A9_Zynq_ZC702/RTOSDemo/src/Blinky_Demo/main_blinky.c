@@ -21,9 +21,9 @@
 #define mainQUEUE_LENGTH					( 5 )
 #define INPUT 1
 #define OUTPUT 0
-#define FFT_BLOCK_SIZE 1024
+#define FFT_BLOCK_SIZE 4096
 #define MAX_DB 200
-#define MIN_DB 100
+#define MIN_DB 120
 
 //Interrupt related
 #define INTC_DEVICE_ID XPAR_PS7_SCUGIC_0_DEVICE_ID
@@ -46,7 +46,7 @@ static int IntcInit();
 static void acceptLeftData(void *params);
 static void Setup(void *params);
 static uint32_t ledColor(uint8_t blue, uint8_t red, uint8_t green);
-static void ledBars(uint32_t *datas, uint16_t *bars, uint32_t *barColors, uint16_t max);
+static void ledBars(uint32_t *datas, uint32_t *bars, uint32_t *barColors, uint16_t max);
 static void writeLEDs(uint32_t *leds, uint32_t size);
 static void four1(double data[], int nn, int isign);
 
@@ -227,11 +227,11 @@ static void processADCData(void *params)
     	   processBuffer[i] = temp[i];*/
 
 	   //Window!
-	   /*for (i = 0; i < FFT_BLOCK_SIZE; ++i)
+	   for (i = 0; i < FFT_BLOCK_SIZE; ++i)
 	   {
 		   double mult = 0.5 * (1 - cos((2*M_PI*i)/(FFT_BLOCK_SIZE - 1)));
-		   inData[i] = mult*(inData[i]);
-	   }*/
+		   processBuffer[i] = mult*(processBuffer[i]);
+	   }
 
 	   //put data into proper format
 	   data2[0] = 0;
@@ -281,25 +281,25 @@ static void processADCData(void *params)
 }
 
 #define BASS_RANGE_START  1
-#define BASS_RANGE_END    4
-#define TWO_RANGE_START   5
-#define TWO_RANGE_END     15
-#define THREE_RANGE_START 16
-#define THREE_RANGE_END   30
-#define FOUR_RANGE_START  31
-#define FOUR_RANGE_END    60
-#define FIVE_RANGE_START  61
-#define FIVE_RANGE_END    80
-#define SIX_RANGE_START   81
-#define SIX_RANGE_END     100
-#define SEVEN_RANGE_START 101
-#define SEVEN_RANGE_END   110
-#define EIGHT_RANGE_START 111
-#define EIGHT_RANGE_END   125
+#define BASS_RANGE_END    3
+#define TWO_RANGE_START   7
+#define TWO_RANGE_END     11
+#define THREE_RANGE_START 12
+#define THREE_RANGE_END   22
+#define FOUR_RANGE_START  23
+#define FOUR_RANGE_END    43
+#define FIVE_RANGE_START  44
+#define FIVE_RANGE_END    86
+#define SIX_RANGE_START   87
+#define SIX_RANGE_END     171
+#define SEVEN_RANGE_START 172
+#define SEVEN_RANGE_END   342
+#define EIGHT_RANGE_START 343
+#define EIGHT_RANGE_END   700
 
 uint32_t testDatas[8];
 uint32_t data[70];
-uint16_t bars[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
+uint32_t bars[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t barsCount[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 
 static void outputData(void *params)
@@ -309,15 +309,19 @@ static void outputData(void *params)
     int maxInd = 0;
     int minInd = 0;
     double max = 0;
+    double min = 0;
     int nanPresent = 0;
     int nanCount = 0;
     int goodCount = 0;
+
+    portTASK_USES_FLOATING_POINT(); //POSITIVELY CRITICAL!
 
 	for ( ;; )
 	{
 		xQueueReceive(processedDataQueue, &magnitudes, portMAX_DELAY);
 		//output data to LEDs based on settings
-		max = 0;
+		//max = 0;
+		min = 1000;
 		maxInd = 0;
 		nanPresent = 0;
         for (ind = 1; ind < (FFT_BLOCK_SIZE / 2 - 1); ++ind)
@@ -328,7 +332,14 @@ static void outputData(void *params)
         		maxInd = ind;
         	}
 
-        	if (isnan(magnitudes[ind]))
+        	if (magnitudes[ind] < min)
+        	{
+        		min = magnitudes[ind];
+        	}
+
+            magnitudes[ind] -= MIN_DB;
+
+            if (isnan(magnitudes[ind]))
         	{
         	   nanPresent = 1;
         	   nanCount += 1;
@@ -336,6 +347,11 @@ static void outputData(void *params)
         	else
         	   goodCount += 1;
         }
+        max -= MIN_DB;
+
+        //for debugger breakpoint
+        if (maxInd != 213)
+        	goodCount++;
 
         if (nanPresent == 0)
         {
@@ -344,52 +360,65 @@ static void outputData(void *params)
 
 				for (ind = 1; ind < (FFT_BLOCK_SIZE / 2 - 1); ++ind)
 				{
-					if (ind <= BASS_RANGE_END && magnitudes[ind] < max)
+					if (ind <= BASS_RANGE_END)
 					{
-						bars[0] += magnitudes[ind];
-						++(barsCount[0]);
+						if (magnitudes[ind] > bars[0])
+							bars[0] = magnitudes[ind];
+						//bars[0] += magnitudes[ind];
+						//++(barsCount[0]);
 					}
-					else if (ind <= TWO_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= TWO_RANGE_END)
 					{
-						bars[1] += magnitudes[ind];
-						++(barsCount[1]);
+						if (magnitudes[ind] > bars[1])
+							bars[1] = magnitudes[ind];
+						//bars[1] += magnitudes[ind];
+						//++(barsCount[1]);
 					}
-					else if (ind <= THREE_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= THREE_RANGE_END)
 					{
-						bars[2] += magnitudes[ind];
-						++(barsCount[2]);
+						if (magnitudes[ind] > bars[2])
+							bars[2] = magnitudes[ind];
+						//bars[2] += magnitudes[ind];
+						//++(barsCount[2]);
 					}
-					else if (ind <= FOUR_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= FOUR_RANGE_END)
 					{
-						bars[3] += magnitudes[ind];
-						++(barsCount[3]);
+						if (magnitudes[ind] > bars[3])
+							bars[3] = magnitudes[ind];
+						//bars[3] += magnitudes[ind];
+						//++(barsCount[3]);
 					}
-					else if (ind <= FIVE_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= FIVE_RANGE_END)
 					{
-						bars[4] += magnitudes[ind];
-						++(barsCount[4]);
+						if (magnitudes[ind] > bars[4])
+							bars[4] = magnitudes[ind];
+						//bars[4] += magnitudes[ind];
+						//++(barsCount[4]);
 					}
-					else if (ind <= SIX_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= SIX_RANGE_END)
 					{
-						bars[5] += magnitudes[ind];
-						++(barsCount[5]);
+						if (magnitudes[ind] > bars[5])
+							bars[5] = magnitudes[ind];
+						//bars[5] += magnitudes[ind];
+						//++(barsCount[5]);
 					}
-					else if (ind <= SEVEN_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= SEVEN_RANGE_END)
 					{
-						bars[6] += magnitudes[ind];
-						++(barsCount[6]);
+						if (magnitudes[ind] > bars[6])
+							bars[6] = magnitudes[ind];
+						//bars[6] += magnitudes[ind];
+						//++(barsCount[6]);
 					}
-					else if (ind <= EIGHT_RANGE_END && magnitudes[ind] < max)
+					else if (ind <= EIGHT_RANGE_END)
 					{
-						bars[7] += magnitudes[ind];
-						++(barsCount[7]);
+						if (magnitudes[ind] > bars[7])
+							bars[7] = magnitudes[ind];
+						//bars[7] += magnitudes[ind];
+						//++(barsCount[7]);
 					}
 				}
 
-				for (ind = 0; ind < 8; ++ind)
-					bars[ind] /= barsCount[ind];
-
-				testDatas[0] = ledColor(14, 0, 0);
+				/*testDatas[0] = ledColor(14, 0, 0);
 				testDatas[1] = ledColor(14, 2, 0);
 				testDatas[2] = ledColor(14, 4, 0);
 				testDatas[3] = ledColor(14, 6, 0);
@@ -397,12 +426,25 @@ static void outputData(void *params)
 				testDatas[5] = ledColor(14, 10, 0);
 				testDatas[6] = ledColor(14, 12, 0);
 				testDatas[7] = ledColor(14, 14, 0);
+				ledBars(data, bars, testDatas, max);
+				writeLEDs(data, 70);*/
 
-				ledBars(data, bars, testDatas, max < 9 ? 9 : max);
 
-				if (magnitudes[0] != magnitudes[1] && magnitudes[1] != magnitudes[2])
-				   writeLEDs(data, 70);
+				/*testDatas[0] = ledColor(14, 0, 0);
+				testDatas[1] = ledColor(14, 2, 0);
+				testDatas[2] = ledColor(14, 4, 0);
+				testDatas[3] = ledColor(14, 6, 0);
+				testDatas[4] = ledColor(14, 8, 0);
+				testDatas[5] = ledColor(14, 10, 0);
+				testDatas[6] = ledColor(14, 12, 0);
+				testDatas[7] = ledColor(14, 14, 0);
+				ledBars(data, bars, testDatas, max);*/
+		        uint32_t color = ledColor(bars[1], bars[4], bars[7]);
+		        for (ind = 0; ind < 70; ++ind)
+		        	data[ind] = color;
+				writeLEDs(data, 70);
         }
+
 
 		vPortFree(magnitudes);
 	}
@@ -528,11 +570,14 @@ uint32_t ledColor(uint8_t blue, uint8_t red, uint8_t green) {
 	return value;
 }
 
-void ledBars(uint32_t *datas, uint16_t *bars, uint32_t *barColors, uint16_t max) {
+void ledBars(uint32_t *datas, uint32_t *bars, uint32_t *barColors, uint16_t max) {
 	int pos = 1;
 	int x = 0;
+
 	for (; x < 8; x++) {
 		int height = bars[x] / (max / 9);
+		if (height > 8)
+			height = 8;
 		int y = 0;
 		for (; y < height; y++) {
 			datas[pos++] = barColors[x];
